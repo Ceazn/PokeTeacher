@@ -1,0 +1,147 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SYNERGY — canonical SQLite schema
+-- Source of truth. schema.ts must match this file.
+-- Migrations live in migrations/ and are applied by db/index.ts.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ── App metadata & migration tracking ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS db_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+  -- keys: schema_version, snapshot_version, last_reg_fetch,
+  --       last_usage_fetch, last_override_fetch
+);
+
+-- ── Reference data (populated from bundled snapshot + diff patches) ──────────
+
+CREATE TABLE IF NOT EXISTS pokemon (
+  id               INTEGER PRIMARY KEY,   -- PokéAPI national dex ID
+  name             TEXT    NOT NULL,       -- slug "great-tusk"
+  display_name     TEXT    NOT NULL,
+  types            TEXT    NOT NULL,       -- JSON: ["Ground","Fighting"]
+  base_stats       TEXT    NOT NULL,       -- JSON: {hp,atk,def,spa,spd,spe}
+  abilities        TEXT    NOT NULL,       -- JSON: [{name,slot,isHidden}]
+  egg_groups       TEXT    NOT NULL,       -- JSON: ["Monster"]
+  sprite_url       TEXT,
+  in_champions     INTEGER NOT NULL DEFAULT 0,
+  data_version     TEXT    NOT NULL DEFAULT '',
+  cached_at        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS pokemon_forms (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  species_id            INTEGER NOT NULL REFERENCES pokemon(id),
+  form_name             TEXT    NOT NULL,
+  display_name          TEXT    NOT NULL,
+  types                 TEXT    NOT NULL,   -- JSON
+  base_stats            TEXT    NOT NULL,   -- JSON
+  abilities             TEXT    NOT NULL,   -- JSON
+  is_champions_override INTEGER NOT NULL DEFAULT 0,
+  data_version          TEXT    NOT NULL DEFAULT '',
+  UNIQUE(species_id, form_name)
+);
+
+CREATE TABLE IF NOT EXISTS moves (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT    NOT NULL UNIQUE,
+  display_name TEXT    NOT NULL,
+  type         TEXT    NOT NULL,
+  category     TEXT    NOT NULL,   -- "physical"|"special"|"status"
+  power        INTEGER,
+  accuracy     INTEGER,
+  pp           INTEGER,
+  priority     INTEGER NOT NULL DEFAULT 0,
+  target       TEXT    NOT NULL DEFAULT 'single',
+  effect_tags  TEXT    NOT NULL DEFAULT '[]',  -- JSON: MoveTag[]
+  cached_at    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS abilities (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT    NOT NULL UNIQUE,
+  display_name TEXT    NOT NULL,
+  effect_text  TEXT,
+  effect_tags  TEXT    NOT NULL DEFAULT '[]',  -- JSON: AbilityTag[]
+  cached_at    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS type_chart (
+  attacking_type TEXT NOT NULL,
+  defending_type TEXT NOT NULL,
+  multiplier     REAL NOT NULL,   -- 0 | 0.25 | 0.5 | 1 | 2 | 4
+  PRIMARY KEY (attacking_type, defending_type)
+);
+
+CREATE TABLE IF NOT EXISTS pokemon_learnset (
+  species_id    INTEGER NOT NULL REFERENCES pokemon(id),
+  move_name     TEXT    NOT NULL REFERENCES moves(name),
+  learn_method  TEXT    NOT NULL,  -- "level-up"|"tm"|"egg"|"tutor"
+  PRIMARY KEY (species_id, move_name)
+);
+
+-- ── User data ────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS teams (
+  id            TEXT    PRIMARY KEY,
+  name          TEXT    NOT NULL,
+  regulation_id TEXT    NOT NULL,
+  archetype     TEXT,
+  notes         TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  version       INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id              TEXT    PRIMARY KEY,
+  team_id         TEXT    NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  slot            INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 6),
+  species_id      INTEGER NOT NULL REFERENCES pokemon(id),
+  form_name       TEXT,
+  nickname        TEXT,
+  level           INTEGER NOT NULL DEFAULT 50,
+  item            TEXT,
+  ability         TEXT    NOT NULL,
+  tera_type       TEXT,
+  nature          TEXT    NOT NULL,
+  ev_spread       TEXT    NOT NULL DEFAULT '{"hp":0,"atk":0,"def":0,"spa":0,"spd":0,"spe":0}',
+  iv_spread       TEXT    NOT NULL DEFAULT '{"hp":31,"atk":31,"def":31,"spa":31,"spd":31,"spe":31}',
+  moves           TEXT    NOT NULL DEFAULT '["","","",""]',
+  roles           TEXT    NOT NULL DEFAULT '[]',  -- JSON: RoleTag[]
+  role_overridden INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(team_id, slot)
+);
+
+-- Last 20 snapshots per team (cap enforced by repository, not DB trigger).
+CREATE TABLE IF NOT EXISTS team_history (
+  id         TEXT    PRIMARY KEY,
+  team_id    TEXT    NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  snapshot   TEXT    NOT NULL,   -- JSON: { team, members, savedAt }
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_team_history ON team_history(team_id, created_at DESC);
+
+-- ── Remote-synced data ───────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS regulations (
+  id           TEXT    PRIMARY KEY,
+  display_name TEXT    NOT NULL,
+  data         TEXT    NOT NULL,   -- JSON: Regulation
+  is_active    INTEGER NOT NULL DEFAULT 0,
+  fetched_at   INTEGER NOT NULL,
+  source_url   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS usage_stats (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  regulation_id   TEXT    NOT NULL,
+  species_name    TEXT    NOT NULL,
+  usage_percent   REAL    NOT NULL,
+  sample_moves    TEXT,            -- JSON: string[]
+  sample_items    TEXT,            -- JSON: string[]
+  sample_spreads  TEXT,            -- JSON: object[]
+  period          TEXT    NOT NULL,  -- "2026-03"
+  fetched_at      INTEGER NOT NULL,
+  UNIQUE(regulation_id, species_name, period)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_reg_period ON usage_stats(regulation_id, period);
