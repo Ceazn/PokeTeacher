@@ -34,6 +34,7 @@ export default function TeamEditorScreen() {
 
   // ── Draft store ────────────────────────────────────────────────────────────
   const { openDraft, closeDraft, draft, isDirty, markSaved } = useTeamDraftStore();
+  const pokemonData = useTeamDraftStore((s) => s.pokemonData);
   const loadedIdRef   = useRef<string | null>(null);
 
   // ── Live synergy (recomputes on every member change) ──────────────────────
@@ -160,7 +161,10 @@ export default function TeamEditorScreen() {
           const slotDef = archetype
             ? getSlotTemplate(archetype, i)
             : { label: `Slot ${i + 1}`, description: 'Any Pokémon.', primaryRole: 'flex' as const, alternatives: [], required: false };
-          const member = draft!.members.find((m) => m.slot === i + 1);
+          const member     = draft!.members.find((m) => m.slot === i + 1);
+          const memberName = member
+            ? pokemonData[member.speciesId]?.displayName
+            : undefined;
 
           return (
             <TeamSlot
@@ -168,9 +172,10 @@ export default function TeamEditorScreen() {
               slotIndex={i}
               roleSlot={slotDef}
               member={member}
+              memberName={memberName}
               onPress={() => {
                 useTeamDraftStore.getState().setActiveSlot(i);
-                // Pokémon picker wired in a future step
+                router.push(`/team/${id}/picker?slot=${i + 1}`);
               }}
             />
           );

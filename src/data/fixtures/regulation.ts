@@ -50,4 +50,7 @@ export const FIXTURE_CHAMPIONS_ROSTER: string[] = [
   'miraidon',    'koraidon',
   'zacian',      'zamazenta',
   'calyrex-ice', 'calyrex-shadow',
+  // Weather / trick-room supports present in fixtures
+  'politoed',    'kingdra',     'torkoal',
+  'indeedee-f',  'urshifu-single-strike',
 ];

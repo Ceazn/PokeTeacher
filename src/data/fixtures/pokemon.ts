@@ -5,6 +5,7 @@
  * Tags are curated for the typical VGC set, not exhaustive.
  */
 import type { PokemonWithRole } from '../../engine/synergy/types';
+import type { PickerEntry } from '../../types/picker';
 
 export const FIXTURE_POKEMON: PokemonWithRole[] = [
   {
@@ -131,3 +132,24 @@ export const FIXTURE_POKEMON: PokemonWithRole[] = [
 export const FIXTURE_POKEMON_MAP: Record<string, PokemonWithRole> = Object.fromEntries(
   FIXTURE_POKEMON.map((p) => [p.slug, p]),
 );
+
+/**
+ * Picker entries for the 10 fixture Pokémon.
+ *
+ * speciesIds 1001-1010 are reserved for fixture data; they are inserted into
+ * the `pokemon` SQLite table on first load so FK constraints are satisfied.
+ *
+ * usagePct values are approximate VGC usage figures for player guidance.
+ */
+export const FIXTURE_PICKER_ENTRIES: PickerEntry[] = [
+  { speciesId: 1001, slug: 'amoonguss',             pokemon: FIXTURE_POKEMON_MAP['amoonguss']!,             spriteUrl: null, usagePct: 45.2 },
+  { speciesId: 1002, slug: 'incineroar',             pokemon: FIXTURE_POKEMON_MAP['incineroar']!,            spriteUrl: null, usagePct: 42.1 },
+  { speciesId: 1003, slug: 'miraidon',               pokemon: FIXTURE_POKEMON_MAP['miraidon']!,              spriteUrl: null, usagePct: 38.4 },
+  { speciesId: 1004, slug: 'flutter-mane',           pokemon: FIXTURE_POKEMON_MAP['flutter-mane']!,          spriteUrl: null, usagePct: 20.7 },
+  { speciesId: 1005, slug: 'calyrex-shadow',         pokemon: FIXTURE_POKEMON_MAP['calyrex-shadow']!,        spriteUrl: null, usagePct: 24.5 },
+  { speciesId: 1006, slug: 'urshifu-single-strike',  pokemon: FIXTURE_POKEMON_MAP['urshifu-single-strike']!, spriteUrl: null, usagePct: 18.3 },
+  { speciesId: 1007, slug: 'indeedee-f',             pokemon: FIXTURE_POKEMON_MAP['indeedee-f']!,            spriteUrl: null, usagePct: 12.1 },
+  { speciesId: 1008, slug: 'politoed',               pokemon: FIXTURE_POKEMON_MAP['politoed']!,              spriteUrl: null, usagePct:  8.6 },
+  { speciesId: 1009, slug: 'kingdra',                pokemon: FIXTURE_POKEMON_MAP['kingdra']!,               spriteUrl: null, usagePct:  6.9 },
+  { speciesId: 1010, slug: 'torkoal',                pokemon: FIXTURE_POKEMON_MAP['torkoal']!,               spriteUrl: null, usagePct:  6.2 },
+];
