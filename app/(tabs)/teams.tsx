@@ -1,23 +1,16 @@
 /**
  * Teams tab — list of all saved teams.
  *
- * Each team card shows name, archetype, and member count.
- * Tapping a card navigates to /team/[id] (team editor).
+ * Uses useTeamList() for real DB data.  Each card shows name, archetype,
+ * and member count.  Tapping navigates to /team/[id] (team editor).
  */
 import React from 'react';
-import { View, Text, Pressable, ScrollView, SafeAreaView } from 'react-native';
+import { View, Text, Pressable, ScrollView, SafeAreaView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTeamList, useDeleteTeam } from '../../src/data/queries/useTeams';
+import type { Archetype } from '../../src/types/team';
 
-// Placeholder — real data will come from useTeamList() once DB is wired into context
-const PLACEHOLDER_TEAMS: Array<{
-  id: string;
-  name: string;
-  archetype: string | null;
-  memberCount: number;
-  updatedAt: number;
-}> = [];
-
-const ARCHETYPE_ICONS: Record<string, string> = {
+const ARCHETYPE_ICONS: Record<Archetype, string> = {
   rain:           '🌧️',
   sun:            '☀️',
   'trick-room':   '🔄',
@@ -27,7 +20,21 @@ const ARCHETYPE_ICONS: Record<string, string> = {
 
 export default function TeamsScreen() {
   const router = useRouter();
-  const teams  = PLACEHOLDER_TEAMS;
+  const { data: teams = [], isLoading } = useTeamList();
+  const { mutate: deleteTeam } = useDeleteTeam();
+
+  function confirmDelete(id: string, name: string) {
+    // React Native Alert works natively; on web it falls back to window.confirm.
+    const { Alert } = require('react-native');
+    Alert.alert(
+      `Delete "${name}"?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteTeam(id) },
+      ],
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1A2E' }}>
@@ -55,7 +62,9 @@ export default function TeamsScreen() {
           </Pressable>
         </View>
 
-        {teams.length === 0 ? (
+        {isLoading ? (
+          <ActivityIndicator color="#E8243C" size="large" style={{ marginTop: 60 }} />
+        ) : teams.length === 0 ? (
           <View
             style={{
               backgroundColor: '#16213E',
@@ -95,6 +104,7 @@ export default function TeamsScreen() {
             <Pressable
               key={team.id}
               onPress={() => router.push(`/team/${team.id}`)}
+              onLongPress={() => confirmDelete(team.id, team.name)}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? '#1E2A3A' : '#16213E',
                 borderRadius:    12,
@@ -109,15 +119,14 @@ export default function TeamsScreen() {
               })}
             >
               <Text style={{ fontSize: 28 }}>
-                {team.archetype ? ARCHETYPE_ICONS[team.archetype] ?? '🔵' : '🔵'}
+                {team.archetype ? (ARCHETYPE_ICONS[team.archetype] ?? '🔵') : '🔵'}
               </Text>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#F0F0F0', fontSize: 15, fontWeight: '700' }} numberOfLines={1}>
                   {team.name}
                 </Text>
                 <Text style={{ color: '#7B9CB5', fontSize: 12, marginTop: 2 }}>
-                  {team.memberCount}/6 Pokémon
-                  {team.archetype ? ` · ${team.archetype}` : ''}
+                  {team.archetype ?? 'Free-form'}
                 </Text>
               </View>
               <Text style={{ color: '#4A6A80', fontSize: 18 }}>›</Text>

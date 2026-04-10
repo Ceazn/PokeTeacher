@@ -1,46 +1,82 @@
 /**
  * /team/[id] — Team editor.
  *
- * The main editing surface.  Shows all 6 role slots for the team's archetype,
- * a real-time synergy summary, and action buttons for health/calc/export.
- *
  * Data flow:
- *   DB → useTeam(id) → openDraft() → teamDraftStore → UI
- *   User edit → setMember() / removeMember() → [Save] → replaceAllMembers()
+ *   DB (useTeam) → openDraft() once on load → teamDraftStore drives UI
+ *   User edits    → setMember() / removeMember() / setArchetype()
+ *   Save button   → useReplaceTeamMembers() → invalidates cache → markSaved()
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
   Pressable,
   ScrollView,
   SafeAreaView,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { TeamSlot } from '../../../src/components/team/TeamSlot';
 import { SynergyBadge } from '../../../src/components/team/SynergyBadge';
 import { useTeamDraftStore } from '../../../src/store/teamDraftStore';
+import { useTeam, useReplaceTeamMembers } from '../../../src/data/queries/useTeams';
 import { getSlotTemplate } from '../../../src/engine/team/archetypes';
-import type { Archetype } from '../../../src/types/team';
+import type { Archetype, TeamSnapshot } from '../../../src/types/team';
 
 export default function TeamEditorScreen() {
-  const { id }   = useLocalSearchParams<{ id: string }>();
-  const router   = useRouter();
-  const draft    = useTeamDraftStore((s) => s.draft);
-  const isDirty  = useTeamDraftStore((s) => s.isDirty);
+  const { id }  = useLocalSearchParams<{ id: string }>();
+  const router  = useRouter();
 
-  // TODO: load team from DB via useTeam(id) and call openDraft() when data arrives.
-  // For now render the draft if it's set, otherwise show a loading placeholder.
+  // ── DB query ──────────────────────────────────────────────────────────────
+  const { data: team, isLoading } = useTeam(id ?? null);
 
-  if (!draft) {
+  // ── Draft store ────────────────────────────────────────────────────────────
+  const { openDraft, closeDraft, draft, isDirty, markSaved } = useTeamDraftStore();
+  const loadedIdRef = useRef<string | null>(null);
+
+  // Load team into draft once per team id (not on every re-render).
+  useEffect(() => {
+    if (team && loadedIdRef.current !== team.id) {
+      openDraft(team);
+      loadedIdRef.current = team.id;
+    }
+  }, [team, openDraft]);
+
+  // Clear draft when navigating away.
+  useEffect(() => () => { closeDraft(); }, [closeDraft]);
+
+  // ── Save mutation ─────────────────────────────────────────────────────────
+  const { mutateAsync: replaceMembers, isPending: isSaving } = useReplaceTeamMembers();
+
+  async function handleSave() {
+    if (!draft) return;
+    const snapshot: TeamSnapshot = {
+      team:    { ...draft, members: undefined as never },
+      members: draft.members,
+      savedAt: Date.now(),
+    };
+    try {
+      await replaceMembers({ teamId: draft.id, members: draft.members, snapshot });
+      markSaved();
+    } catch (err) {
+      Alert.alert('Save failed', 'Your changes could not be saved. Please try again.');
+    }
+  }
+
+  // ── Loading / error states ────────────────────────────────────────────────
+  if (isLoading || (!draft && !isLoading)) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1A2E', justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: '#7B9CB5', fontSize: 16 }}>Loading team…</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1A2E', justifyContent: 'center', alignItems: 'center', gap: 16 }}>
+        {isLoading
+          ? <ActivityIndicator color="#E8243C" size="large" />
+          : <Text style={{ color: '#EF4444', fontSize: 15 }}>Team not found.</Text>
+        }
       </SafeAreaView>
     );
   }
 
-  const archetype = draft.archetype as Archetype | null;
+  const archetype = draft!.archetype as Archetype | null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1A2E' }}>
@@ -60,19 +96,29 @@ export default function TeamEditorScreen() {
           <Text style={{ color: '#7B9CB5', fontSize: 16 }}>‹</Text>
         </Pressable>
         <Text style={{ color: '#F0F0F0', fontSize: 17, fontWeight: '700', flex: 1 }} numberOfLines={1}>
-          {draft.name}
+          {draft!.name}
         </Text>
-        {isDirty ? (
+
+        {(isDirty || isSaving) && (
           <Pressable
-            onPress={() => {
-              // TODO: persist via useReplaceTeamMembers()
-              useTeamDraftStore.getState().markSaved();
+            onPress={handleSave}
+            disabled={isSaving}
+            style={{
+              backgroundColor: isSaving ? '#7A1220' : '#E8243C',
+              borderRadius:    8,
+              paddingHorizontal: 14,
+              paddingVertical:   7,
+              flexDirection:   'row',
+              alignItems:      'center',
+              gap:             6,
             }}
-            style={{ backgroundColor: '#E8243C', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 }}
           >
-            <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '700' }}>Save</Text>
+            {isSaving && <ActivityIndicator color="#FFF" size="small" />}
+            <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '700' }}>
+              {isSaving ? 'Saving…' : 'Save'}
+            </Text>
           </Pressable>
-        ) : null}
+        )}
       </View>
 
       <ScrollView
@@ -80,7 +126,7 @@ export default function TeamEditorScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Synergy summary bar */}
+        {/* Synergy summary bar — will be live in step 2 */}
         <View
           style={{
             backgroundColor: '#16213E',
@@ -97,7 +143,8 @@ export default function TeamEditorScreen() {
           <Text style={{ color: '#7B9CB5', fontSize: 13, flex: 1 }}>
             Team Synergy
           </Text>
-          <SynergyBadge tier="decent" />
+          {/* Placeholder — replaced in step 2 */}
+          <SynergyBadge tier={draft!.members.length > 0 ? 'decent' : 'poor'} />
           <Pressable
             onPress={() => router.push(`/team/${id}/health`)}
             style={{ backgroundColor: '#0F3460', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
@@ -108,21 +155,20 @@ export default function TeamEditorScreen() {
 
         {/* Role slots */}
         {[0, 1, 2, 3, 4, 5].map((i) => {
-          const slot   = archetype ? getSlotTemplate(archetype, i) : {
-            label: `Slot ${i + 1}`, description: 'Any Pokémon.',
-            primaryRole: 'flex' as const, alternatives: [], required: false,
-          };
-          const member = draft.members.find((m) => m.slot === i + 1);
+          const slotDef = archetype
+            ? getSlotTemplate(archetype, i)
+            : { label: `Slot ${i + 1}`, description: 'Any Pokémon.', primaryRole: 'flex' as const, alternatives: [], required: false };
+          const member = draft!.members.find((m) => m.slot === i + 1);
 
           return (
             <TeamSlot
               key={i}
               slotIndex={i}
-              roleSlot={slot}
+              roleSlot={slotDef}
               member={member}
               onPress={() => {
                 useTeamDraftStore.getState().setActiveSlot(i);
-                // TODO: open Pokémon picker bottom sheet
+                // Pokémon picker wired in a future step
               }}
             />
           );

@@ -1,13 +1,13 @@
 /**
  * TanStack Query hooks for team data.
  *
- * All hooks accept an open SQLiteDatabase instance — the caller is responsible
- * for obtaining it (typically via a React context or the singleton from db/index).
+ * Follows the same pattern as useRegulation: hooks call getDatabase()
+ * internally so screens don't need to thread a db instance around.
  *
- * Cache keys follow the pattern ['teams', ...] for easy invalidation.
+ * Cache keys follow ['teams', ...] for easy invalidation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import { getDatabase } from '../db';
 import type { Team, TeamMember, TeamSnapshot } from '../../types/team';
 import {
   getAllTeams,
@@ -24,59 +24,77 @@ import {
 // ─── Query keys ───────────────────────────────────────────────────────────────
 
 export const TEAM_KEYS = {
-  all:          () => ['teams'] as const,
-  list:         () => ['teams', 'list'] as const,
-  detail:       (id: string) => ['teams', 'detail', id] as const,
-  history:      (id: string) => ['teams', 'history', id] as const,
+  all:     () => ['teams'] as const,
+  list:    () => ['teams', 'list'] as const,
+  detail:  (id: string) => ['teams', 'detail', id] as const,
+  history: (id: string) => ['teams', 'history', id] as const,
 } as const;
 
 // ─── Read queries ─────────────────────────────────────────────────────────────
 
 /** All teams, newest first, without members. */
-export function useTeamList(db: SQLiteDatabase | null) {
+export function useTeamList() {
   return useQuery({
-    queryKey:  TEAM_KEYS.list(),
-    queryFn:   () => (db ? getAllTeams(db) : []),
-    enabled:   db !== null,
+    queryKey: TEAM_KEYS.list(),
+    queryFn:  async () => {
+      const db = await getDatabase();
+      return getAllTeams(db);
+    },
   });
 }
 
-/** A single team including all its members. */
-export function useTeam(db: SQLiteDatabase | null, teamId: string | null) {
+/** A single team including all its members. Disabled when id is null. */
+export function useTeam(teamId: string | null) {
   return useQuery({
-    queryKey:  TEAM_KEYS.detail(teamId ?? ''),
-    queryFn:   () => (db && teamId ? getTeamById(db, teamId) : null),
-    enabled:   db !== null && teamId !== null,
+    queryKey: TEAM_KEYS.detail(teamId ?? ''),
+    queryFn:  async () => {
+      const db = await getDatabase();
+      return getTeamById(db, teamId!);
+    },
+    enabled:  teamId !== null,
   });
 }
 
 /** Version history snapshots for a team, newest first. */
-export function useTeamHistory(db: SQLiteDatabase | null, teamId: string | null) {
+export function useTeamHistory(teamId: string | null) {
   return useQuery({
-    queryKey:  TEAM_KEYS.history(teamId ?? ''),
-    queryFn:   () => (db && teamId ? getTeamHistory(db, teamId) : []),
-    enabled:   db !== null && teamId !== null,
+    queryKey: TEAM_KEYS.history(teamId ?? ''),
+    queryFn:  async () => {
+      const db = await getDatabase();
+      return getTeamHistory(db, teamId!);
+    },
+    enabled:  teamId !== null,
   });
 }
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
-/** Creates a new team and invalidates the list cache. */
-export function useCreateTeam(db: SQLiteDatabase | null) {
+/** Creates a new team. Returns the new team id. */
+export function useCreateTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Omit<Team, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'members'>) =>
-      db ? createTeam(db, data) : Promise.reject(new Error('DB not ready')),
+    mutationFn: async (data: Omit<Team, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'members'>) => {
+      const db = await getDatabase();
+      return createTeam(db, data);
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: TEAM_KEYS.all() }),
   });
 }
 
-/** Updates team metadata and invalidates list + detail caches. */
-export function useUpdateTeam(db: SQLiteDatabase | null) {
+/** Updates team metadata (name, archetype, notes). */
+export function useUpdateTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Team, 'name' | 'archetype' | 'notes'>> }) =>
-      db ? updateTeam(db, id, data) : Promise.reject(new Error('DB not ready')),
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id:   string;
+      data: Partial<Pick<Team, 'name' | 'archetype' | 'notes'>>;
+    }) => {
+      const db = await getDatabase();
+      return updateTeam(db, id, data);
+    },
     onSuccess: (_result, { id }) => {
       qc.invalidateQueries({ queryKey: TEAM_KEYS.list() });
       qc.invalidateQueries({ queryKey: TEAM_KEYS.detail(id) });
@@ -84,29 +102,35 @@ export function useUpdateTeam(db: SQLiteDatabase | null) {
   });
 }
 
-/** Deletes a team and invalidates all team caches. */
-export function useDeleteTeam(db: SQLiteDatabase | null) {
+/** Deletes a team and all its members/history. */
+export function useDeleteTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      db ? deleteTeam(db, id) : Promise.reject(new Error('DB not ready')),
+    mutationFn: async (id: string) => {
+      const db = await getDatabase();
+      return deleteTeam(db, id);
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: TEAM_KEYS.all() }),
   });
 }
 
 /**
- * Replaces all members on a team in one shot.
- * Also saves a history snapshot before overwriting.
+ * Replaces all members on a team in one transaction.
+ * Saves a history snapshot before overwriting so the user can undo.
  */
-export function useReplaceTeamMembers(db: SQLiteDatabase | null) {
+export function useReplaceTeamMembers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ teamId, members, snapshot }: {
+    mutationFn: async ({
+      teamId,
+      members,
+      snapshot,
+    }: {
       teamId:   string;
       members:  TeamMember[];
       snapshot: TeamSnapshot;
     }) => {
-      if (!db) throw new Error('DB not ready');
+      const db = await getDatabase();
       await saveSnapshot(db, teamId, snapshot);
       await replaceAllMembers(db, teamId, members);
     },
@@ -118,12 +142,14 @@ export function useReplaceTeamMembers(db: SQLiteDatabase | null) {
   });
 }
 
-/** Removes a single member from a team. */
-export function useDeleteMember(db: SQLiteDatabase | null, teamId: string | null) {
+/** Removes a single member. Invalidates the parent team detail. */
+export function useDeleteMember(teamId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (memberId: string) =>
-      db ? deleteMember(db, memberId) : Promise.reject(new Error('DB not ready')),
+    mutationFn: async (memberId: string) => {
+      const db = await getDatabase();
+      return deleteMember(db, memberId);
+    },
     onSuccess: () => {
       if (teamId) qc.invalidateQueries({ queryKey: TEAM_KEYS.detail(teamId) });
     },

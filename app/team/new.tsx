@@ -1,10 +1,10 @@
 /**
  * /team/new — Archetype picker modal.
  *
- * The user picks an archetype (or skips for free-form), optionally names the team,
- * then navigates to /team/[id] with the draft pre-seeded.
+ * Flow: user picks archetype + name → taps "Create Team" → team row inserted
+ * in DB → navigates to /team/[id] (the persisted editor).
  *
- * When launched from the Build tab with ?archetype=rain, the picker pre-selects
+ * When launched from the Build tab with ?archetype=rain the picker pre-selects
  * that archetype so the user can confirm with one tap.
  */
 import React, { useState } from 'react';
@@ -17,9 +17,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ARCHETYPE_TEMPLATES, ALL_ARCHETYPES } from '../../src/engine/team/archetypes';
+import { useCreateTeam } from '../../src/data/queries/useTeams';
+import { useRegulationStore } from '../../src/store/regulationStore';
 import type { Archetype } from '../../src/types/team';
 
 const ARCHETYPE_ICONS: Record<Archetype, string> = {
@@ -34,19 +37,28 @@ export default function NewTeamScreen() {
   const router  = useRouter();
   const params  = useLocalSearchParams<{ archetype?: string }>();
 
-  const [selected, setSelected]  = useState<Archetype | null>(
+  const [selected, setSelected] = useState<Archetype | null>(
     (params.archetype as Archetype) ?? null,
   );
   const [name, setName] = useState('');
 
-  function handleCreate() {
-    // TODO: create team in DB via useCreateTeam(), then navigate to editor.
-    // For now we navigate with query params so the editor can set up the draft.
-    const teamName = name.trim() || (selected ? ARCHETYPE_TEMPLATES[selected].displayName + ' Team' : 'New Team');
-    router.replace({
-      pathname: '/team/draft',
-      params:   { archetype: selected ?? '', name: teamName },
+  const { mutateAsync: createTeam, isPending } = useCreateTeam();
+  const activeRegulation = useRegulationStore((s) => s.activeRegulation);
+
+  async function handleCreate() {
+    const teamName     = name.trim() ||
+      (selected ? ARCHETYPE_TEMPLATES[selected].displayName + ' Team' : 'New Team');
+    const regulationId = activeRegulation?.id ?? 'champions-m-a';
+
+    const teamId = await createTeam({
+      name:         teamName,
+      regulationId,
+      archetype:    selected,
+      notes:        null,
     });
+
+    // Navigate to the persisted editor; replace so Back doesn't return here.
+    router.replace(`/team/${teamId}`);
   }
 
   return (
@@ -133,9 +145,9 @@ export default function NewTeamScreen() {
                     {a.gameplan}
                   </Text>
                 </View>
-                {isSelected ? (
+                {isSelected && (
                   <Text style={{ color: '#E8243C', fontSize: 20, fontWeight: '700' }}>✓</Text>
-                ) : null}
+                )}
               </Pressable>
             );
           })}
@@ -165,24 +177,29 @@ export default function NewTeamScreen() {
                 No archetype — build freely without role slot guidance.
               </Text>
             </View>
-            {selected === null ? (
+            {selected === null && (
               <Text style={{ color: '#E8243C', fontSize: 20, fontWeight: '700' }}>✓</Text>
-            ) : null}
+            )}
           </Pressable>
 
           {/* Create button */}
           <Pressable
             onPress={handleCreate}
+            disabled={isPending}
             style={({ pressed }) => ({
-              backgroundColor: pressed ? '#B01C2E' : '#E8243C',
+              backgroundColor: isPending ? '#7A1220' : pressed ? '#B01C2E' : '#E8243C',
               borderRadius:    14,
               padding:         18,
               alignItems:      'center',
-              opacity:         pressed ? 0.9 : 1,
+              flexDirection:   'row',
+              justifyContent:  'center',
+              gap:             10,
+              opacity:         isPending ? 0.7 : pressed ? 0.9 : 1,
             })}
           >
+            {isPending && <ActivityIndicator color="#FFF" size="small" />}
             <Text style={{ color: '#FFF', fontSize: 17, fontWeight: '800' }}>
-              Create Team
+              {isPending ? 'Creating…' : 'Create Team'}
             </Text>
           </Pressable>
         </ScrollView>
