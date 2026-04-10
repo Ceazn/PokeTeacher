@@ -21,6 +21,7 @@ import { TeamSlot } from '../../../src/components/team/TeamSlot';
 import { SynergyBadge } from '../../../src/components/team/SynergyBadge';
 import { useTeamDraftStore } from '../../../src/store/teamDraftStore';
 import { useTeam, useReplaceTeamMembers } from '../../../src/data/queries/useTeams';
+import { useLiveSynergyWithRoles } from '../../../src/hooks/useLiveSynergy';
 import { getSlotTemplate } from '../../../src/engine/team/archetypes';
 import type { Archetype, TeamSnapshot } from '../../../src/types/team';
 
@@ -33,7 +34,11 @@ export default function TeamEditorScreen() {
 
   // ── Draft store ────────────────────────────────────────────────────────────
   const { openDraft, closeDraft, draft, isDirty, markSaved } = useTeamDraftStore();
-  const loadedIdRef = useRef<string | null>(null);
+  const loadedIdRef   = useRef<string | null>(null);
+
+  // ── Live synergy (recomputes on every member change) ──────────────────────
+  const archetype  = draft?.archetype as Archetype | null;
+  const synergy    = useLiveSynergyWithRoles(archetype);
 
   // Load team into draft once per team id (not on every re-render).
   useEffect(() => {
@@ -75,8 +80,6 @@ export default function TeamEditorScreen() {
       </SafeAreaView>
     );
   }
-
-  const archetype = draft!.archetype as Archetype | null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1A2E' }}>
@@ -143,8 +146,7 @@ export default function TeamEditorScreen() {
           <Text style={{ color: '#7B9CB5', fontSize: 13, flex: 1 }}>
             Team Synergy
           </Text>
-          {/* Placeholder — replaced in step 2 */}
-          <SynergyBadge tier={draft!.members.length > 0 ? 'decent' : 'poor'} />
+          <SynergyBadge tier={synergy?.tier ?? 'poor'} />
           <Pressable
             onPress={() => router.push(`/team/${id}/health`)}
             style={{ backgroundColor: '#0F3460', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
