@@ -57,6 +57,7 @@ export type MoveTag =
   | 'redirect'       // Follow Me / Rage Powder
   | 'fake-out'
   | 'priority'
+  | 'pivot'          // U-turn / Volt Switch / Flip Turn
   | 'spread'         // hits both opponents
   | 'weather:rain' | 'weather:sun' | 'weather:sand' | 'weather:snow'
   | 'trick-room'
@@ -89,7 +90,12 @@ export type AbilityTag =
   | 'weather-abuser:sand' | 'weather-abuser:snow'
   | 'speed-boost'
   | 'intimidate'
-  | 'redirection'    // Storm Drain / Lightning Rod
+  | 'regenerator'
+  | 'redirection'       // Storm Drain / Lightning Rod
+  | 'hadron-engine'     // Miraidon — boosts SpA on Electric Terrain
+  | 'orichalcum-pulse'  // Koraidon — boosts Atk in Sun
+  | 'protosynthesis'    // Sun-boosted stat amplifier
+  | 'quark-drive'       // Electric Terrain-boosted stat amplifier
   | 'trick-room-abuser' // very low base speed benefit
   | 'screen-setter'
   | 'priority-immunity';

@@ -15,6 +15,7 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Alert,
+  Share,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { TeamSlot } from '../../../src/components/team/TeamSlot';
@@ -23,7 +24,9 @@ import { useTeamDraftStore } from '../../../src/store/teamDraftStore';
 import { useTeam, useReplaceTeamMembers } from '../../../src/data/queries/useTeams';
 import { useLiveSynergyWithRoles } from '../../../src/hooks/useLiveSynergy';
 import { getSlotTemplate } from '../../../src/engine/team/archetypes';
-import type { Archetype, TeamSnapshot } from '../../../src/types/team';
+import { exportToShowdown } from '../../../src/engine/team/showdown';
+import { FIXTURE_PICKER_ENTRIES } from '../../../src/data/fixtures/pokemon';
+import type { Archetype, TeamMember, TeamSnapshot } from '../../../src/types/team';
 
 export default function TeamEditorScreen() {
   const { id }  = useLocalSearchParams<{ id: string }>();
@@ -33,19 +36,27 @@ export default function TeamEditorScreen() {
   const { data: team, isLoading } = useTeam(id ?? null);
 
   // ── Draft store ────────────────────────────────────────────────────────────
-  const { openDraft, closeDraft, draft, isDirty, markSaved } = useTeamDraftStore();
-  const pokemonData = useTeamDraftStore((s) => s.pokemonData);
-  const loadedIdRef   = useRef<string | null>(null);
+  const { openDraft, closeDraft, draft, isDirty, markSaved, removeMember } = useTeamDraftStore();
+  const pokemonData  = useTeamDraftStore((s) => s.pokemonData);
+  const loadedIdRef  = useRef<string | null>(null);
 
   // ── Live synergy (recomputes on every member change) ──────────────────────
   const archetype  = draft?.archetype as Archetype | null;
   const synergy    = useLiveSynergyWithRoles(archetype);
 
-  // Load team into draft once per team id (not on every re-render).
+  // Load team into draft once per team id; restore pokemonData from fixtures
+  // so display names and synergy are available immediately without re-picking.
   useEffect(() => {
     if (team && loadedIdRef.current !== team.id) {
       openDraft(team);
       loadedIdRef.current = team.id;
+
+      // openDraft clears pokemonData — restore each member from fixture lookup.
+      const { setPokemonData } = useTeamDraftStore.getState();
+      for (const member of team.members) {
+        const entry = FIXTURE_PICKER_ENTRIES.find((e) => e.speciesId === member.speciesId);
+        if (entry) setPokemonData(member.speciesId, entry.pokemon);
+      }
     }
   }, [team, openDraft]);
 
@@ -57,17 +68,57 @@ export default function TeamEditorScreen() {
 
   async function handleSave() {
     if (!draft) return;
+    const { members, ...teamHead } = draft;
     const snapshot: TeamSnapshot = {
-      team:    { ...draft, members: undefined as never },
-      members: draft.members,
+      team:    teamHead,
+      members,
       savedAt: Date.now(),
     };
     try {
       await replaceMembers({ teamId: draft.id, members: draft.members, snapshot });
       markSaved();
-    } catch (err) {
+    } catch {
       Alert.alert('Save failed', 'Your changes could not be saved. Please try again.');
     }
+  }
+
+  // ── Showdown export ───────────────────────────────────────────────────────
+  function handleExport() {
+    if (!draft || draft.members.length === 0) {
+      Alert.alert('Nothing to export', 'Add some Pokémon first.');
+      return;
+    }
+    const nameMap: Record<number, string> = Object.fromEntries(
+      Object.entries(pokemonData).map(([id, p]) => [Number(id), p.displayName]),
+    );
+    const paste = exportToShowdown(draft.members, nameMap);
+    Share.share({ message: paste, title: `${draft.name} — Showdown Export` });
+  }
+
+  // ── Slot press — change or remove ─────────────────────────────────────────
+  function handleSlotPress(slotIndex: number, member: TeamMember | undefined) {
+    useTeamDraftStore.getState().setActiveSlot(slotIndex);
+
+    if (!member) {
+      router.push(`/team/${id}/picker?slot=${slotIndex + 1}`);
+      return;
+    }
+
+    const displayName = pokemonData[member.speciesId]?.displayName
+      ?? `Slot ${slotIndex + 1}`;
+
+    Alert.alert(displayName, undefined, [
+      {
+        text:    'Change Pokémon',
+        onPress: () => router.push(`/team/${id}/picker?slot=${slotIndex + 1}`),
+      },
+      {
+        text:    'Remove from team',
+        style:   'destructive',
+        onPress: () => removeMember(member.slot),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   // ── Loading / error states ────────────────────────────────────────────────
@@ -130,7 +181,7 @@ export default function TeamEditorScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Synergy summary bar — will be live in step 2 */}
+        {/* Synergy summary bar */}
         <View
           style={{
             backgroundColor: '#16213E',
@@ -173,10 +224,7 @@ export default function TeamEditorScreen() {
               roleSlot={slotDef}
               member={member}
               memberName={memberName}
-              onPress={() => {
-                useTeamDraftStore.getState().setActiveSlot(i);
-                router.push(`/team/${id}/picker?slot=${i + 1}`);
-              }}
+              onPress={() => handleSlotPress(i, member)}
             />
           );
         })}
@@ -203,6 +251,17 @@ export default function TeamEditorScreen() {
             })}
           >
             <Text style={{ color: '#93C5FD', fontSize: 13, fontWeight: '700' }}>⚡ Calc</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleExport}
+            style={({ pressed }) => ({
+              flex: 1, backgroundColor: pressed ? '#1E2A3A' : '#16213E',
+              borderRadius: 10, borderWidth: 1, borderColor: '#0F3460',
+              padding: 12, alignItems: 'center', opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ color: '#93C5FD', fontSize: 13, fontWeight: '700' }}>↗ Export</Text>
           </Pressable>
         </View>
       </ScrollView>

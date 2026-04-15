@@ -24,7 +24,6 @@ export interface CalcInput {
   modifiers?: {
     tailwind?:     boolean;  // attacker side
     helpingHand?:  boolean;  // attacker side
-    stickyWeb?:    boolean;  // defender side
   };
 }
 
@@ -61,9 +60,6 @@ export function runCalc(input: CalcInput): CalcOutput | null {
         isTailwind:    modifiers.tailwind    ?? false,
         isHelpingHand: modifiers.helpingHand ?? false,
       },
-      defenderSide: {
-        isStickyWeb: modifiers.stickyWeb ?? false,
-      },
     });
 
     const result: Result = calculate(gen, atkPokemon, defPokemon, move, field);
@@ -76,7 +72,7 @@ export function runCalc(input: CalcInput): CalcOutput | null {
     const minPct = Math.round((Math.min(...damageRolls) / defHp) * 1000) / 10;
     const maxPct = Math.round((Math.max(...damageRolls) / defHp) * 1000) / 10;
 
-    const koChance = result.kochance().chance;
+    const koChance = result.kochance().chance ?? 0;
     const koLabel  = formatKoLabel(result);
 
     return {
@@ -140,9 +136,9 @@ function buildCalcPokemon(member: TeamMember, data: PokemonWithRole): Pokemon {
       spd: member.ivSpread.spd,
       spe: member.ivSpread.spe,
     },
-    item:    member.item ? slugToCalcName(member.item) : undefined,
-    ability: slugToCalcName(member.ability),
-    tera:    member.teraType ?? undefined,
+    item:     member.item ? slugToCalcName(member.item) : undefined,
+    ability:  slugToCalcName(member.ability),
+    teraType: member.teraType ?? undefined,
   });
 }
 
@@ -160,7 +156,8 @@ function slugToCalcName(slug: string): string {
 
 function formatKoLabel(result: Result): string {
   const ko = result.kochance();
-  if (ko.chance === 0) return 'Does not OHKO';
-  if (ko.chance >= 1)  return 'Guaranteed OHKO';
-  return `${(ko.chance * 100).toFixed(1)}% OHKO`;
+  const chance = ko.chance ?? 0;
+  if (chance === 0) return 'Does not OHKO';
+  if (chance >= 1)  return 'Guaranteed OHKO';
+  return `${(chance * 100).toFixed(1)}% OHKO`;
 }

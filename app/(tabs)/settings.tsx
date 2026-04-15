@@ -65,7 +65,7 @@ export default function SettingsScreen() {
             label="Team Size"
             value={
               activeRegulation
-                ? `${activeRegulation.teamSize.bring} / ${activeRegulation.teamSize.max}`
+                ? `${activeRegulation.teamSize.battleSize} / ${activeRegulation.teamSize.max}`
                 : '—'
             }
           />

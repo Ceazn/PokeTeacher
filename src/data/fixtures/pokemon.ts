@@ -15,8 +15,9 @@ export const FIXTURE_POKEMON: PokemonWithRole[] = [
     offensiveTypes: ['Grass', 'Poison'],
     baseStats:      { hp: 114, atk: 85, def: 70, spa: 85, spd: 80, spe: 30 },
     abilityTags:    ['regenerator'],
-    moveTags:       ['redirect', 'recovery', 'spore'],
+    moveTags:       ['redirect', 'recovery', 'sleep'],
     roles:          ['redirector', 'bulky-support'],
+    teraType:       null,
   },
 
   {
